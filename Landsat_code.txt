@@ -1,0 +1,23 @@
+//Before running import Landsat 7/8/9 data any of it, either TOA/OLI Raw/Surface Reflectance
+
+var shp = ee.FeatureCollection(Airport)
+Map.addLayer(shp, {}, 'Airport')
+
+var img = ee.Image(ee.ImageCollection("LANDSAT/LC08/C01/T1_RT")
+  .filterDate("2020-01-01","2020-01-29")
+  .filterBounds(geometry)
+  .sort("CLOUD_COVER")
+  .first());
+  
+  print("A L8 scene", img)
+
+//this is how you export it to drive  
+Export.image.toDrive({
+  image: img.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8']),
+  description: 'Landsat_geometry',
+  folder: 'geometry',
+  scale: 30, region: roi,
+  fileDimensions: 7680,
+  maxPixels: 10e11,
+  crs: 'EPSG:32643'
+});
