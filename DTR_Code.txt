@@ -1,0 +1,1009 @@
+var vis = {min: -10,max: 35,
+          palette: ['9b0000','b10000','c20000','e00000','d23000',
+                    'd04300','ed4200','ff6a00','ff8100','ff9900','ff9900',
+                    'ffc802','ffe210','ffe214','fcff27','fff81f','edff56']};
+
+
+///////////////////----------------->MODELS<---------------------------//////////////////
+var m = {};
+
+m.col = ee.ImageCollection("MODIS/061/MOD11A1").map(function(img){
+        return img.select(['LST_Day_1km', 'LST_Night_1km']).multiply(0.02).subtract(273.15)
+        .clip(India).copyProperties(img, ['system:index','system:time_end','system:time_start']);})
+
+m.coll = ee.ImageCollection("MODIS/061/MOD11A2").map(function(img){
+        return img.select(['LST_Day_1km', 'LST_Night_1km']).multiply(0.02).subtract(273.15)
+        .clip(India).copyProperties(img, ['system:index','system:time_end','system:time_start']);})
+        
+m.coll = m.coll.map(function(img){
+         var day = img.select('LST_Day_1km');
+         var night = img.select('LST_Night_1km');
+         return img.addBands(day.subtract(night).rename('DTR').copyProperties(img, 
+         ['system:index','system:time_end','system:time_start']));  
+})
+
+var lastimg = m.col.limit(1,'system:time_start',false).first()
+var day = lastimg.select('LST_Day_1km');
+var night = lastimg.select('LST_Night_1km')
+lastimg = lastimg.addBands(day.subtract(night).rename('DTR'))
+
+var statesNames = districts.aggregate_array('State_Name').distinct().sort();
+var district = districts.select('State_Name','Dist_Name');
+
+var getCounties = function(state) {
+  var filteredCounties = district.filter(ee.Filter.eq('State_Name',state));
+  var filteredCountiesNames = filteredCounties.aggregate_array('Dist_Name').distinct().sort();
+  return ee.List(filteredCountiesNames)
+}
+
+
+var month1 = 1;
+var month2 = 12;
+
+
+/////----------------------------->Components<-----------------------------------//////
+var c = {}
+
+//Control Panel for user input
+c.controlPanel = ui.Panel();
+
+// Define a series of panel widgets to be used as horizontal dividers.
+c.dividers = {};
+c.dividers.divider1 = ui.Panel();
+c.dividers.divider2 = ui.Panel();
+c.dividers.divider3 = ui.Panel();
+c.dividers.divider4 = ui.Panel();
+c.dividers.divider5 = ui.Panel();
+c.dividers.divider6 = ui.Panel();
+c.dividers.divider7 = ui.Panel();
+
+// Define the main interactive map.
+c.map = ui.Map();
+
+// Define an app info widget group.
+c.info = {};
+c.info.titleLabel = ui.Label('Diurnal Temperature Range Explorer');
+c.info.aboutLabel = ui.Label(
+  'Diurnal temperature range (DTR), the difference between the day (maximum) ' +
+  'and night (minimum) temperatures within the day, is an important meteorological ' +
+  'indicator associated with climate extremities.  ');
+c.info.aboutLabel1 = ui.Label(  
+  'This interactive tool helps users visualize the changes in specific data/map in' +
+  'CSV, SVG and PNG format DTR and download district wise, year/month');
+c.info.websiteLabel = ui.Label({
+  value: 'Learn how to use this app to enjoy all the benefits',
+  targetUrl: 'https://drive.google.com/file/d/1t1Jq7i5U9GvOO_YYhHxC0tiBSj9yH06k/view?usp=share_link'
+});
+// c.info.paperLabel = ui.Label({
+//   value: 'Add any link here',
+//   targetUrl: 'https://internal.imd.gov.in/pages/heatwave_mausam.php'
+// });
+c.info.panel = ui.Panel([
+  c.info.titleLabel, c.info.aboutLabel,
+  c.info.aboutLabel1, c.info.websiteLabel
+]);
+
+c.initialText = {};
+c.initialText.info = ui.Label('Select a district to activate the tools')
+
+//Textbox
+c.textbox = {}
+c.textbox.label = ui.Label('Enter the temperature value, to visualize regions above this value')
+c.textbox.box = ui.Textbox({
+  placeholder: 'Enter value to 2 decimals, ex: "10.23"'
+})
+//c.textbox.label1 = ui.Label()
+c.textbox.panel = ui.Panel([c.textbox.label,c.textbox.box])
+
+//Define a region(state) selector
+c.selectstate = {}
+c.selectstate.label = ui.Label('Select a State')
+c.selectstate.selector = ui.Select([], 'Loading...')
+c.selectstate.panel = ui.Panel([c.selectstate.label, c.selectstate.selector]);
+//Define a region(districts) selector
+c.selectdis = {}
+c.selectdis.label = ui.Label('Select a District')
+c.selectdis.selector = ui.Select([], 'Waiting for a State')
+c.selectdis.panel = ui.Panel([c.selectdis.label, c.selectdis.selector]);
+
+//year and month group
+c.yearmonth = {};
+c.yearmonth.label = ui.Label('Select a year and a month to display the DTR image')
+c.yearmonth.panel = ui.Panel([c.yearmonth.label])
+// Define a data year selector widget group.
+c.selectYear = {};
+c.selectYear.label = ui.Label('Select a year');
+c.selectYear.slider = ui.Slider({
+  min: 2000,
+  max: 2023,
+  step: 1
+});
+c.selectYear.panel = ui.Panel([c.selectYear.label, c.selectYear.slider]);
+
+// Define a data month selector widget group.
+c.selectmonth = {};
+c.selectmonth.label = ui.Label('Select a Month');
+c.selectmonth.slider = ui.Slider({
+  min: month1,
+  max: month2,
+  step: 1
+});
+c.selectmonth.panel = ui.Panel([c.selectmonth.label, c.selectmonth.slider]);
+
+//Show latest DTR Img
+c.selectlatestimg = {};
+c.selectlatestimg.checkbox = ui.Checkbox('Show Latest DTR Image',false)
+
+//Show latest DTR Img
+c.showfunctions = {};
+c.showfunctions.checkbox = ui.Checkbox('Show available functions',false)
+
+///Min and max panel
+c.printarea = {};
+c.printarea.label = ui.Label({value:'Max and Min DTR in °C', style: {fontWeight: 'bold',fontSize: '15px', color: '484848'}})
+c.printarea.label1 = ui.Label()
+c.printarea.label2 = ui.Label()
+
+// Define a panel for displaying a chart.
+c.chart = {};
+c.chart.shownButton = ui.Button('Show chart');
+c.chart.label = ui.Label("The yearly-average DTR Chart"); 
+c.chart.chartPanel = ui.Panel([c.chart.label,c.chart.shownButton]);
+
+// Define a panel for displaying a chart.
+c.chart1 = {};
+c.chart1.shownButton = ui.Button('Show chart');
+c.chart1.label = ui.Label("Monthly-average DTR Chart for the all month's of selected year"); 
+c.chart1.chartPanel = ui.Panel([c.chart1.label,c.chart1.shownButton]);
+
+// Define a panel for displaying a chart.
+c.chart2 = {};
+c.chart2.shownButton = ui.Button('Show chart');
+c.chart2.label = ui.Label("Selected Month's average DTR Chart for all years"); 
+c.chart2.chartPanel = ui.Panel([c.chart2.label,c.chart2.shownButton]);
+
+c.selectyearlydtr = {}
+c.selectyearlydtr.checkbox = ui.Checkbox('Year-Avg DTR for selected year',false)
+
+var panel = ui.Panel({
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '450px', height: '270px', position: 'bottom-right', backgroundColor: 'FFFFFF'}
+});
+
+var panel1 = ui.Panel({
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '550px', height: '350px', position: 'middle-left', backgroundColor: 'FFFFFF'}
+});
+
+// Define a legend widget group.
+c.legend = {};
+c.legend.title = ui.Label('Legend');
+c.legend.colorbar = ui.Thumbnail(ee.Image.pixelLonLat().select(0));
+c.legend.leftLabel = ui.Label('[min]');
+c.legend.centerLabel = ui.Label();
+c.legend.rightLabel = ui.Label('[max]');
+c.legend.labelPanel = ui.Panel({
+  widgets: [
+    c.legend.leftLabel,
+    c.legend.centerLabel,
+    c.legend.rightLabel,
+  ],
+  layout: ui.Panel.Layout.flow('horizontal')
+});
+c.legend.panel = ui.Panel([
+  c.legend.title,
+  c.legend.colorbar,
+  c.legend.labelPanel
+]);
+
+c.download = {}
+c.download.title = ui.Label('Area falling under different range of temp values (Download as CSV)')
+c.download.button = ui.Button('Get download URL')
+c.download.label = ui.Label()
+c.download.panel = ui.Panel([c.download.title,c.download.button,c.download.label])
+
+c.timeseries = {}
+c.timeseries.title = ui.Label('Time Series of DTR for the region')
+c.timeseries.checkbox = ui.Checkbox('Show Time Series',false)
+c.timeseries.panel = ui.Panel([c.timeseries.title,c.timeseries.checkbox])
+
+//Composition--------------------><-----------------------------------Composition//
+c.controlPanel.add(c.info.panel);
+c.controlPanel.add(c.dividers.divider1);
+c.controlPanel.add(c.selectstate.panel);
+c.controlPanel.add(c.selectdis.panel);
+c.controlPanel.add(c.dividers.divider2);
+
+c.controlPanel.add(c.initialText.info);
+
+// c.controlPanel.add(c.yearmonth.panel);
+// c.controlPanel.add(c.selectYear.panel);
+// c.controlPanel.add(c.selectmonth.panel);
+// c.controlPanel.add(c.selectyearlydtr.checkbox);
+// // c.controlPanel.add(c.dividers.divider3);
+// // c.controlPanel.add(c.printarea.label);
+// // c.controlPanel.add(c.printarea.label1);
+// // c.controlPanel.add(c.printarea.label2);
+// c.controlPanel.add(c.dividers.divider4);
+// c.controlPanel.add(c.textbox.panel)
+// c.controlPanel.add(c.dividers.divider5);
+// c.controlPanel.add(c.chart.chartPanel);
+// c.controlPanel.add(c.chart1.chartPanel);
+// c.controlPanel.add(c.chart2.chartPanel);
+// c.controlPanel.add(c.dividers.divider6);
+// c.controlPanel.add(c.download.panel)
+
+function showfunctions(){
+if(c.showfunctions.checkbox.getValue() === true){
+c.controlPanel.add(c.yearmonth.panel);
+c.controlPanel.add(c.selectYear.panel);
+c.controlPanel.add(c.selectmonth.panel);
+c.controlPanel.add(c.selectyearlydtr.checkbox);
+// c.controlPanel.add(c.dividers.divider3);
+// c.controlPanel.add(c.printarea.label);
+// c.controlPanel.add(c.printarea.label1);
+// c.controlPanel.add(c.printarea.label2);
+c.controlPanel.add(c.dividers.divider4);
+c.controlPanel.add(c.textbox.panel)
+c.controlPanel.add(c.dividers.divider5);
+c.controlPanel.add(c.chart.chartPanel);
+c.controlPanel.add(c.chart1.chartPanel);
+c.controlPanel.add(c.chart2.chartPanel);
+c.controlPanel.add(c.dividers.divider6);
+c.controlPanel.add(c.download.panel);
+//c.controlPanel.add(c.dividers.divider7);
+//c.controlPanel.add(c.timeseries.panel);
+c.map.add(c.selectlatestimg.checkbox);
+}
+
+if(c.showfunctions.checkbox.getValue() === false){
+c.controlPanel.remove(c.yearmonth.panel);
+c.controlPanel.remove(c.selectYear.panel);
+c.controlPanel.remove(c.selectmonth.panel);
+c.controlPanel.remove(c.selectyearlydtr.checkbox);
+// c.controlPanel.remove(c.dividers.divider3);
+// c.controlPanel.remove(c.printarea.label);
+// c.controlPanel.remove(c.printarea.label1);
+// c.controlPanel.remove(c.printarea.label2);
+c.controlPanel.remove(c.dividers.divider4);
+c.controlPanel.remove(c.textbox.panel)
+c.controlPanel.remove(c.dividers.divider5);
+c.controlPanel.remove(c.chart.chartPanel);
+c.controlPanel.remove(c.chart1.chartPanel);
+c.controlPanel.remove(c.chart2.chartPanel);
+c.controlPanel.remove(c.dividers.divider6);
+c.controlPanel.remove(c.download.panel);
+//c.controlPanel.remove(c.dividers.divider7);
+//c.controlPanel.remove(c.timeseries.panel);
+c.map.remove(c.selectlatestimg.checkbox);
+  }
+  else {}
+}
+
+// c.map.add(c.selectlatestimg.checkbox)
+c.map.add(c.legend.panel)
+c.map.add(c.showfunctions.checkbox)
+
+ui.root.clear();
+ui.root.add(c.controlPanel);
+ui.root.add(c.map);
+
+
+//Styling-------------------><---------------------------------Styling options//
+var s = {}
+
+
+s.opacityWhiteMed = {
+  backgroundColor: 'rgba(255, 255, 255, 0.5)'
+};
+s.opacityWhiteNone = {
+  backgroundColor: 'rgba(255, 255, 255, 0)'
+};
+s.stretchHorizontal = {
+  stretch: 'horizontal'
+};
+s.noTopMargin = {
+  margin: '0px 8px 8px 8px'
+};
+s.smallBottomMargin = {
+  margin: '8px 8px 4px 8px'
+};
+s.bigTopMargin = {
+  margin: '24px 8px 8px 8px'
+};
+s.aboutText = {
+  fontSize: '13px',
+  color: '505050'
+};
+s.divider = {
+  backgroundColor: 'F0F0F0',
+  height: '4px',
+  margin: '20px 0px'
+};
+s.widgetTitle = {
+  fontSize: '14px',
+  fontWeight: 'bold',
+  margin: '8px 8px 0px 8px',
+  color: '383838'
+};
+
+//Set Widget Style
+c.info.titleLabel.style().set({
+  fontSize: '18px',
+  fontWeight: 'bold'
+});
+
+c.controlPanel.style().set({
+  width: '280px',
+  padding: '0px'
+});
+
+c.selectlatestimg.checkbox.style().set({
+  position:'bottom-left',
+  fontWeight: 'bold',
+  fontSize: '13px',
+  color: '505050'
+});
+
+c.showfunctions.checkbox.style().set({
+  position:'bottom-left',
+  fontWeight: 'bold',
+  fontSize: '13px',
+  color: '505050'
+});
+
+//label of year&month
+c.yearmonth.label.style().set(s.widgetTitle);
+//year
+c.selectYear.slider.style().set(s.stretchHorizontal);
+c.selectYear.label.style().set(s.widgetTitle);
+//month
+c.selectmonth.slider.style().set(s.stretchHorizontal);
+c.selectmonth.label.style().set(s.widgetTitle);
+//Download
+c.download.button.style().set(s.stretchHorizontal);
+c.download.title.style().set(s.widgetTitle);
+//district
+c.selectdis.selector.style().set(s.stretchHorizontal);
+c.selectdis.label.style().set(s.widgetTitle);
+//state
+c.selectstate.selector.style().set(s.stretchHorizontal);
+c.selectstate.label.style().set(s.widgetTitle);
+//chart
+c.chart.shownButton.style().set(s.stretchHorizontal);
+c.chart.label.style().set(s.widgetTitle);
+
+c.chart1.shownButton.style().set(s.stretchHorizontal);
+c.chart1.label.style().set(s.widgetTitle);
+
+c.chart2.shownButton.style().set(s.stretchHorizontal);
+c.chart2.label.style().set(s.widgetTitle);
+
+c.info.titleLabel.style().set(s.bigTopMargin);
+
+c.textbox.label.style().set(s.widgetTitle);
+c.textbox.box.style().set(s.stretchHorizontal);
+
+c.info.aboutLabel.style().set(s.aboutText);
+//c.info.paperLabel.style().set(s.aboutText);
+//c.info.paperLabel.style().set(s.smallBottomMargin);
+c.info.websiteLabel.style().set(s.aboutText);
+c.info.websiteLabel.style().set(s.noTopMargin);
+c.info.websiteLabel.style().set(s.widgetTitle);
+c.info.aboutLabel1.style().set(s.widgetTitle);
+
+c.legend.title.style().set({
+  fontWeight: 'bold',
+  fontSize: '12px',
+  color: '383838'
+});
+c.legend.title.style().set(s.opacityWhiteNone);
+c.legend.colorbar.style().set({
+  stretch: 'horizontal',
+  margin: '0px 8px',
+  maxHeight: '20px'
+});
+c.legend.leftLabel.style().set({
+  margin: '4px 8px',
+  fontSize: '12px'
+});
+c.legend.leftLabel.style().set(s.opacityWhiteNone);
+c.legend.centerLabel.style().set({
+  margin: '4px 8px',
+  fontSize: '12px',
+  textAlign: 'center',
+  stretch: 'horizontal'
+});
+c.legend.centerLabel.style().set(s.opacityWhiteNone);
+c.legend.rightLabel.style().set({
+  margin: '4px 8px',
+  fontSize: '12px'
+});
+c.legend.rightLabel.style().set(s.opacityWhiteNone);
+c.legend.panel.style().set({
+  position: 'bottom-left',
+  width: '200px',
+  padding: '0px'});
+c.legend.panel.style().set(s.opacityWhiteMed);
+c.legend.labelPanel.style().set(s.opacityWhiteNone);
+
+Object.keys(c.dividers).forEach(function(key) {
+  c.dividers[key].style().set(s.divider);
+});
+
+c.map.setOptions('HYBRID');
+c.map.setCenter(79.12,21.12,4)
+
+
+
+//Behaviour-----------------------><---------------------Behaviour//
+function getPropertyValueList(dataModelDict, propertyName){
+  // Get a list of values for a specified property name.
+  var result = [];
+  for (var key in dataModelDict) {
+    result.push(dataModelDict[key][propertyName]);
+  }
+  return result;
+}
+
+//c.selectlatestimg.checkbox.setValue(false);
+
+//State and District Selector
+statesNames.evaluate(function(states){
+c.selectstate.selector.items().reset(states)
+c.selectstate.selector.setPlaceholder('List of States')
+c.selectstate.selector.onChange(function(state){
+  c.selectdis.selector.setPlaceholder('Loading...')
+  var counties = getCounties(state)
+  counties.evaluate(function(name){
+  c.selectdis.selector.items().reset(name) 
+  c.selectdis.selector.setPlaceholder('List of Distrct')
+  });
+});
+c.selectdis.selector.onChange(function(district){
+
+c.selectlatestimg.checkbox.setValue(false)
+c.selectyearlydtr.checkbox.setValue(false)
+
+//If functions don't work remove this and add it outside//
+c.showfunctions.checkbox.onChange(showfunctions)
+c.controlPanel.remove(c.initialText.info)
+
+c.map.setOptions('TERRAIN');
+c.map.layers().reset();
+Map.style().set('cursor', 'crosshair');
+var roi = districts.filter(ee.Filter.eq('Dist_Name',district))  
+updatemapdis()
+c.map.centerObject(roi, 9)
+//c.map.addLayer(roi, {}, district)
+c.selectYear.slider.onChange(updatemapdis);
+c.selectmonth.slider.onChange(updatemapdis);
+c.selectlatestimg.checkbox.onChange(showlastimgesdis)
+c.selectyearlydtr.checkbox.onChange(showyeardtrdis)
+
+})
+})
+
+function updatemap(){
+  c.map.layers().reset();
+  var year = c.selectYear.slider.getValue();
+  var img = m.coll.filter(ee.Filter.calendarRange(year,year,'year')).select('DTR')
+  if(c.selectyearlydtr.checkbox.getValue() === false){var month = c.selectmonth.slider.getValue();
+    var dataset = m.coll.select('DTR').filter(ee.Filter.calendarRange(month,month,'month')).mean()
+    img = img.filter(ee.Filter.calendarRange(month,month,'month')).mean()
+    var img1 = img.unmask(dataset)
+  }
+  getmaxmin(img)
+  c.selectyearlydtr.checkbox.setValue(false)
+  c.selectlatestimg.checkbox.setValue(false)
+  c.map.addLayer(img1, vis, 'DTR, ' + year +'-'+month)
+}
+
+function updatemapdis(){
+if(c.selectyearlydtr.checkbox.getValue() === false){
+  c.map.layers().reset();
+  var year = c.selectYear.slider.getValue();
+  var dist = c.selectdis.selector.getValue();
+  var roi = districts.filter(ee.Filter.eq('Dist_Name',dist))
+  var img = m.coll.filter(ee.Filter.calendarRange(year,year,'year')).select('DTR')
+  var month = c.selectmonth.slider.getValue();
+  var dataset = m.coll.select('DTR').filter(ee.Filter.calendarRange(month,month,'month')).mean().clip(roi)
+  img = img.filter(ee.Filter.calendarRange(month,month,'month')).mean().clip(roi)
+  getmaxmin(img)
+  var img1 = img.unmask(dataset)
+  //c.selectyearlydtr.checkbox.setValue(false)
+  c.selectlatestimg.checkbox.setValue(false)
+  c.map.addLayer(img1, vis, 'DTR, ' + year +'-'+month)
+}
+if(c.selectyearlydtr.checkbox.getValue() === true)
+{showyeardtrdis()}
+}
+
+function showtemperature(){
+  var year = c.selectYear.slider.getValue();
+  var img = m.coll.filter(ee.Filter.calendarRange(year,year,'year')).select('DTR')
+  var month = c.selectmonth.slider.getValue();
+  if(c.selectlatestimg.checkbox.getValue()){if(c.selectdis.selector.getValue() === null){
+  var img2 = lastimg.select('DTR')
+  var temp = Number(c.textbox.box.getValue())
+  var imgg = img2.gte(temp)
+  var img1 = img2.updateMask(imgg)
+  c.map.addLayer(img1,vis,'DTR above '+temp+' °C')
+  }}
+  else if(c.selectlatestimg.checkbox.getValue()){
+  var dist = c.selectdis.selector.getValue();
+  var roi = districts.filter(ee.Filter.eq('Dist_Name',dist))
+  img = lastimg.select('DTR').clip(roi)
+  temp = Number(c.textbox.box.getValue())
+  imgg = img2.gte(temp)
+  img1 = img2.updateMask(imgg)
+  c.map.addLayer(img1,vis,'DTR above '+temp+' °C')
+  }
+  else if(c.selectdis.selector.getValue()){
+  dist = c.selectdis.selector.getValue();
+  roi = districts.filter(ee.Filter.eq('Dist_Name',dist))
+  img = img.filter(ee.Filter.calendarRange(month,month,'month')).mean().clip(roi)
+  temp = Number(c.textbox.box.getValue())
+  imgg = img.gte(temp)
+  img1 = img.updateMask(imgg)
+  c.map.addLayer(img1,vis,'DTR above '+temp+' °C')
+}
+  else {
+  img = img.filter(ee.Filter.calendarRange(month,month,'month')).mean()
+  temp = Number(c.textbox.box.getValue())
+  imgg = img.gte(temp)
+  img1 = img.updateMask(imgg)
+  c.map.addLayer(img1,vis,'DTR above '+temp+' °C')
+  }
+  
+}
+
+function showlastimges(){
+  c.map.layers().reset();
+  var dtr = lastimg.select('DTR')
+  var eeDate = dtr.date().format('MM-dd');
+  eeDate.evaluate(function(date){
+    if(c.selectdis.selector.getValue() === null){if(c.selectlatestimg.checkbox.getValue()){
+    c.map.layers().reset();
+    getmaxmin(dtr)
+    c.selectyearlydtr.checkbox.setValue(false)
+    c.map.addLayer(dtr, vis, 'DTR, '+date);
+    }}
+  })
+}
+
+function showlastimgesdis(){
+  c.map.layers().reset();
+  var dtr = lastimg.select('DTR')
+  var eeDate = dtr.date().format('MM-dd');
+  eeDate.evaluate(function(date){
+  var dist = c.selectdis.selector.getValue();
+  var roi = districts.filter(ee.Filter.eq('Dist_Name',dist))
+  if(c.selectlatestimg.checkbox.getValue()){
+    getmaxmin(dtr)
+    c.selectyearlydtr.checkbox.setValue(false)
+    c.map.addLayer(dtr.clip(roi), vis,'DTR, '+date)
+  }})
+  if(c.selectyearlydtr.checkbox.getValue() === false && c.selectlatestimg.checkbox.getValue() === false)
+  {updatemapdis()}
+}
+
+function showyeardtr(){
+  c.map.layers().reset();
+  var year = c.selectYear.slider.getValue();
+  var img = m.coll.filter(ee.Filter.calendarRange(year,year,'year')).select('DTR').mean()
+  getmaxmin(img)
+  if(c.selectyearlydtr.checkbox.getValue()){
+    c.selectlatestimg.checkbox.setValue(false)
+    c.map.addLayer(img, vis,'DTR, '+year)
+  }
+}
+
+function showyeardtrdis(){
+  c.map.layers().reset();
+  var year = c.selectYear.slider.getValue();
+  var dist = c.selectdis.selector.getValue();
+  var roi = districts.filter(ee.Filter.eq('Dist_Name',dist))
+  var img = m.coll.filter(ee.Filter.calendarRange(year,year,'year')).select('DTR').mean().clip(roi)
+  getmaxmin(img)
+  if(c.selectyearlydtr.checkbox.getValue() === true){
+    c.selectlatestimg.checkbox.setValue(false)
+    c.map.addLayer(img.clip(roi), vis,'DTR, '+year);
+  }
+  if(c.selectyearlydtr.checkbox.getValue() === false && c.selectlatestimg.checkbox.getValue() === false)
+  {updatemapdis()}
+}
+
+function showchart(){
+if(c.chart1.shownButton.getLabel() == 'Hide chart'){c.chart1.shownButton.setLabel('Show chart')}
+if(c.chart2.shownButton.getLabel() == 'Hide chart'){c.chart2.shownButton.setLabel('Show chart')}
+if(c.chart.shownButton.getLabel() == 'Hide chart'){
+c.map.remove(panel)
+panel.clear()
+}
+
+if(c.chart.shownButton.getLabel() == 'Show chart'){
+c.map.remove(panel)
+panel.clear()
+//Chart for Yearly Average DTR
+var start = 2000;
+var end = 2023;
+var years = ee.List.sequence(start, end); 
+
+if(c.selectdis.selector.getValue()){
+var dist = c.selectdis.selector.getValue();
+var roi1 = districts.filter(ee.Filter.eq('Dist_Name',dist))}
+else {roi1 = India}
+
+var diff = years.map(function(y){
+          // var yearlyday = m.coll.select(['LST_Day_1km']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          // var yearlynight = m.coll.select(['LST_Night_1km']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          var dtr =  m.coll.select(['DTR']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          return dtr.clip(roi1);});
+var chart = ui.Chart.image.series({
+  imageCollection: diff,
+  region:roi1,
+  reducer:ee.Reducer.mean(),
+  scale:1000,
+  xProperty:'year'
+}).setOptions({
+  title: 'Diurnal Temperature Range (Average) for all the Years in °C',
+  hAxis: {title: 'Years',format: '####'},
+  vAxis: {title: 'Temperature in °C'},
+  lineWidth: 1,
+  pointSize: 2,
+  trendlines:{
+    0:{visibleInLegend:false,
+    title: 'Trend',
+    type:'exponential',
+    opacity:1,
+    color:'red',
+    lineWidth:2,
+  }}
+});
+var styleChartArea = {
+    position: 'bottom-right',
+    width: '400px',
+    height: '255px',
+    margin: '0px',
+    padding: '0px'
+  }; 
+chart.style().set(styleChartArea)
+panel.add(chart)
+c.map.add(panel)
+}
+
+if(c.chart.shownButton.getLabel() == 'Show chart'){
+c.chart.shownButton.setLabel('Hide chart')
+}else (c.chart.shownButton.setLabel('Show chart'))
+
+}
+
+function showchart1(){
+if(c.chart.shownButton.getLabel() == 'Hide chart'){c.chart.shownButton.setLabel('Show chart')}
+if(c.chart2.shownButton.getLabel() == 'Hide chart'){c.chart2.shownButton.setLabel('Show chart')}
+if(c.chart1.shownButton.getLabel() == 'Hide chart'){
+c.map.remove(panel)
+panel.clear()
+}
+
+if(c.chart1.shownButton.getLabel() == 'Show chart'){
+c.map.remove(panel)
+panel.clear()
+//Chart for Yearly Average DTR
+var start = 2000;
+var end = 2023;
+var years = ee.List.sequence(start, end); 
+
+var months = ee.List.sequence(1, 12);
+
+if(c.selectdis.selector.getValue()){
+var dist = c.selectdis.selector.getValue();
+var roi1 = districts.filter(ee.Filter.eq('Dist_Name',dist))}
+else {roi1 = India}
+
+var y = c.selectYear.slider.getValue()
+var dtr =  m.coll.select(['DTR']).filter(ee.Filter.calendarRange(y,y,'year')).set('year',y);
+
+var diff = months.map(function(m){
+          // var yearlyday = m.coll.select(['LST_Day_1km']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          // var yearlynight = m.coll.select(['LST_Night_1km']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          var mon = dtr.filter(ee.Filter.calendarRange(m,m,'month')).mean().set('Months', m);
+          return ee.Image(mon.clip(roi1));
+});
+
+var chart = ui.Chart.image.series({
+  imageCollection: diff,
+  region:roi1,
+  reducer:ee.Reducer.mean(),
+  scale:1000,
+  xProperty: 'Months',
+}).setOptions({
+  title: 'Diurnal Temperature Range (Avg) for the Months of the year ' + y +' °C',
+  hAxis: {title: 'Months'},
+  vAxis: {title: 'Temperature in °C'},
+  lineWidth: 1,
+  pointSize: 2,
+  trendlines:{
+    0:{visibleInLegend:false,
+    title: 'Trend',
+    type:'exponential',
+    opacity:1,
+    color:'red',
+    lineWidth:2,
+  }}
+});
+var styleChartArea = {
+    position: 'bottom-right',
+    width: '400px',
+    height: '255px',
+    margin: '0px',
+    padding: '0px'
+  }; 
+chart.style().set(styleChartArea)
+panel.add(chart)
+c.map.add(panel)
+}
+
+if(c.chart1.shownButton.getLabel() == 'Show chart'){
+c.chart1.shownButton.setLabel('Hide chart')
+}else (c.chart1.shownButton.setLabel('Show chart'))
+
+}
+
+function showchart2(){
+if(c.chart1.shownButton.getLabel() == 'Hide chart'){c.chart1.shownButton.setLabel('Show chart')}
+if(c.chart.shownButton.getLabel() == 'Hide chart'){c.chart.shownButton.setLabel('Show chart')}
+if(c.chart2.shownButton.getLabel() == 'Hide chart'){
+c.map.remove(panel)
+panel.clear()
+}
+
+if(c.chart2.shownButton.getLabel() == 'Show chart'){
+c.map.remove(panel)
+panel.clear()
+//Chart for Yearly Average DTR
+var start = 2000;
+var end = 2023;
+var years = ee.List.sequence(start, end); 
+
+if(c.selectdis.selector.getValue()){
+var dist = c.selectdis.selector.getValue();
+var roi1 = districts.filter(ee.Filter.eq('Dist_Name',dist))}
+else {roi1 = India}
+
+var startDate = m.col.first().date()
+var endDate = m.col.limit(1,'system:time_start',false).first().date()
+var dataset = m.coll.filterDate(startDate, endDate)
+
+var monn = c.selectmonth.slider.getValue()
+
+dataset = dataset.filter(ee.Filter.calendarRange(monn,monn,'month'))
+
+var dict = ee.Dictionary({'1': 'January', '2': 'Febuary', '3': 'March', '4': 'April', '5': 'May', '6': 'June',
+                          '7': 'July', '8': 'August', '9': 'September', '10': 'October', '11': 'November', '12': 'December'});
+
+var monthName = dict.get(String(monn))
+
+var diff = years.map(function(y){
+          var dtr =  dataset.select(['DTR']).filter(ee.Filter.calendarRange(y,y,'year')).mean().set('year',y);
+          return dtr.clip(roi1);});
+
+var chart = ui.Chart.image.series({
+  imageCollection: diff,
+  region:roi1,
+  reducer:ee.Reducer.mean(),
+  scale:1000,
+  xProperty:'year'
+}).setOptions({
+  title: 'Diurnal Temperature Range (Avg) for the Month of ' +
+  monthName.getInfo() +
+  ' in all the years in °C',
+  hAxis: {title: 'Years',format: '####'},
+  vAxis: {title: 'Temperature in °C'},
+  lineWidth: 1,
+  pointSize: 2,
+  trendlines:{
+    0:{visibleInLegend:false,
+    title: 'Trend',
+    type:'exponential',
+    opacity:1,
+    color:'red',
+    lineWidth:2,
+  }}
+});
+var styleChartArea = {
+    position: 'bottom-right',
+    width: '400px',
+    height: '255px',
+    margin: '0px',
+    padding: '0px'
+  }; 
+chart.style().set(styleChartArea)
+panel.add(chart)
+c.map.add(panel)
+}
+
+if(c.chart2.shownButton.getLabel() == 'Show chart'){
+c.chart2.shownButton.setLabel('Hide chart')
+}else (c.chart2.shownButton.setLabel('Show chart'))
+
+}
+
+function getmaxmin(img){
+  c.printarea.label2.setValue('Loading...')
+  c.printarea.label1.setValue('Loading...')
+  if(c.selectdis.selector.getValue()){
+  var dist = c.selectdis.selector.getValue();
+  var roi1 = districts.filter(ee.Filter.eq('Dist_Name',dist))}
+  else {roi1 = India}
+  var min = img.reduceRegion({
+    reducer: ee.Reducer.min(),
+    geometry: roi1,
+    scale:1000,
+  }).get('DTR')
+  var max = img.reduceRegion({
+    reducer: ee.Reducer.max(),
+    geometry: roi1,
+    scale:1000,
+  }).get('DTR')
+  
+  updateLegend(min,max)
+  min = min.evaluate(function(val){c.printarea.label2.setValue('Minimum DTR: ' + val.toFixed(2) + ' °C')})
+  max = max.evaluate(function(val){c.printarea.label1.setValue('Maximum DTR: ' + val.toFixed(2) + ' °C')})
+}
+
+function updateLegend(min,max) {
+  c.legend.title.setValue('Diurnal Temp Range');
+  c.legend.colorbar.setParams({
+    bbox: [0, 0, 1, 0.1],
+    dimensions: '100x10',
+    format: 'png',
+    min: 0,
+    max: 1,
+    palette: ['9b0000','b10000','c20000','e00000','d23000',
+              'd04300','ed4200','ff6a00','ff8100','ff9900','ff9900',
+              'ffc802','ffe210','ffe214','fcff27','fff81f','edff56']
+  });
+  
+  // palette:  ['fff80c','fcff49','f2ff87',
+  //                   'ff7412','ff9900','ffbc00','ffbc00','ffd400','ffe10c',
+  //                   'a10000','d00000','ed0000','ff0000','ff3b00','ff5e00']
+  
+  var min11 = min.evaluate(function(val){c.legend.leftLabel.setValue(val.toFixed(2))})
+  var max2 = max.evaluate(function(val){c.legend.centerLabel.setValue(val.toFixed(2) / 2)})
+  var max1 = max.evaluate(function(val){c.legend.rightLabel.setValue(val.toFixed(2))})
+}
+
+function downloader(){
+  
+  if(c.download.label.getValue()){c.download.label.setValue()}
+  
+  if(c.selectdis.selector.getValue()){
+  var dist = c.selectdis.selector.getValue();
+  var roi1 = districts.filter(ee.Filter.eq('Dist_Name',dist))}
+  else {roi1 = India}
+  
+  var img = c.map.layers().get(0).get('eeObject')
+  var min = img.reduceRegion({
+    reducer: ee.Reducer.min(),
+    geometry: roi1,
+    scale:1000,
+  }).get('DTR')
+  var max = img.reduceRegion({
+    reducer: ee.Reducer.max(),
+    geometry: roi1,
+    scale:1000,
+  }).get('DTR')
+  var feature1 = ee.Feature(null, {Min:min,Max:max})
+
+  
+  var lis = ee.List.sequence(ee.Number(min).round(),ee.Number(max).round())
+  var feature = ee.FeatureCollection(lis.map(function(temp){
+  var img = c.map.layers().get(0).get('eeObject')
+  var range1 = img.updateMask(img.gte(ee.Image.constant(temp)).and(img.lt(ee.Image.constant(ee.Number(temp).add(1)))))
+  var areaImage = range1.multiply(ee.Image.pixelArea()).divide(10e6);
+
+  var stats = areaImage.reduceRegion({
+      reducer: ee.Reducer.sum(),
+      geometry: roi1,
+      scale: 1000,
+      maxPixels: 1e10
+    }).get('DTR');
+  
+  var featuree = ee.Feature(null, {Area:stats, DTR_Range_lower:temp, DTR_Range_Higher: temp.add(1)})
+  return featuree 
+  }))
+  feature = feature.merge(ee.FeatureCollection(feature1))
+  if(roi1 === India){
+        c.download.label.style().set({shown: true});
+        c.download.label.setValue('Select a district to download')}
+  else {var downloadurl = feature.getDownloadURL()
+  c.download.label.setUrl(downloadurl)
+  c.download.label.style().set({shown: true});
+  c.download.label.setValue('Download Link', {'href': downloadurl}) 
+  }
+}
+
+function timeseries(){
+
+var col = m.coll.map(function(img) {
+  img = img.select('DTR')
+  var doy = ee.Date(img.get('system:time_start')).getRelative('day', 'year');
+  return img.set('doy', doy);
+});
+var distinctDOY = m.coll.filterDate('2022-01-01', '2023-01-01');
+// Define a filter that identifies which images from the complete collection
+// match the DOY from the distinct DOY collection.
+var filter = ee.Filter.equals({leftField: 'doy', rightField: 'doy'});
+
+// Define a join.
+var join = ee.Join.saveAll('doy_matches');
+
+// Apply the join and convert the resulting FeatureCollection to an
+// ImageCollection.
+var joinCol = ee.ImageCollection(join.apply(distinctDOY, col, filter));
+// Apply median reduction among matching DOY collections.
+var comp = joinCol.map(function(img) {
+  var doyCol = ee.ImageCollection.fromImages(
+    img.get('doy_matches')
+  );
+  return doyCol.reduce(ee.Reducer.median());
+});
+
+// Define RGB visualization parameters.
+var visParams = {
+  min: -20,
+  max: 45,
+  palette: ['9b0000','b10000','c20000','e00000','d23000',
+            'd04300','ed4200','ff6a00','ff8100','ff9900','ff9900',
+            'ffc802','ffe210','ffe214','fcff27','fff81f','edff56'],
+};
+
+// Create RGB visualization images for use as animation frames.
+var rgbVis = comp.map(function(img) {
+  return img.visualize(visParams).clip(India);
+});
+
+// Define GIF visualization parameters.
+var gifParams = {
+  'region': roi,
+  'dimensions': 600,
+  'crs': 'EPSG:3857',
+  'framesPerSecond': 10
+};
+
+// Print the GIF URL to the console.
+print(rgbVis.getVideoThumbURL(gifParams));
+
+// Render the GIF animation in the console.
+print(ui.Thumbnail(rgbVis, gifParams));
+}
+
+//Initial State of the App------------------><------------------------------State of the App//
+function findKey(dataModelDict, propertyName, propertyValue){
+  // Find the first dictionary key for a specified property value.
+  for (var key in dataModelDict) {
+    if (dataModelDict[key][propertyName] == propertyValue) {
+      return key;
+    }
+  }
+  return null;
+}
+
+c.selectYear.slider.setValue(ui.url.get('year', 2023), false);
+c.selectmonth.slider.setValue(ui.url.get('month', 1), false);
+
+c.selectYear.slider.onChange(updatemap);
+c.selectmonth.slider.onChange(updatemap);
+c.selectlatestimg.checkbox.onChange(showlastimges)
+c.selectyearlydtr.checkbox.onChange(showyeardtr)
+c.selectdis.selector.onChange(updatemapdis);
+c.chart.shownButton.onClick(showchart)
+c.chart1.shownButton.onClick(showchart1)
+c.chart2.shownButton.onClick(showchart2)
+c.textbox.box.onChange(showtemperature)
+c.download.button.onClick(downloader)
+//c.timeseries.checkbox.onChange(timeseries)
+//showyeardtr()
+updatemap()
