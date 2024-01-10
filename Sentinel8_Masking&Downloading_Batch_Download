@@ -1,0 +1,51 @@
+function maskL8(col){
+  var cloudshadowbitmask = (1 << 3);
+  var cloudsbitmask = (1 << 5);
+  var qa = col.select('pixel_qa');
+  var mask = qa.bitwiseAnd(cloudshadowbitmask).eq(0)
+               .and(qa.bitwiseAnd(cloudsbitmask).eq(0));
+  return col.updateMask(mask);
+}
+var dataset = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR")
+  .map(maskL8)
+  .filterDate('2016-01-01', '2016-01-30')
+  .filterBounds(roi)
+  .median();
+  
+var trueColor432 = dataset.select(['B4', 'B3', 'B2']).clip(roi);
+
+var trueColor432Vis = {
+  min: 0,
+  max: 3000,
+  gamma: 1.4,
+};
+Map.centerObject(roi, 9);
+Map.addLayer(trueColor432, trueColor432Vis, 'True Color (432)');
+
+
+// Define export parameters
+var exportParams1 = {
+  driveFolder: 'Landsat_8',
+  region: roi,
+  scale: 30,
+  maxPixels: 1e13
+};
+
+// // Loop over each year and export the DTR image
+// var years = ee.List.sequence(2000, 2021);
+// years.getInfo().forEach(function(year) {
+// var startDate = ee.Date.fromYMD(year, 1, 1);
+// var endDate = startDate.advance(1, 'year');
+// var image = dataset.filterDate(startDate, endDate).mean().multiply(0.0001).clip(geometry);
+// var exportName = 'MODIS_NDVI_' + year;
+  Export.image.toDrive({
+    image: trueColor432,
+    description: 'Landsat_8',
+    fileNamePrefix: 'Landsat_8_masked_2016Jan',
+    folder: exportParams1.driveFolder,
+    region: exportParams1.region,
+    crs: 'EPSG:32643',
+    scale: exportParams1.scale,
+    maxPixels: exportParams1.maxPixels
+  });
+// });
