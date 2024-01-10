@@ -1,0 +1,225 @@
+Map.addLayer(Skar,{},"Skar")
+Map.centerObject(Skar)
+CO2I = CO2I.filterDate("2015-06","2023-02")
+var CO2_2 = CO2I.filter(ee.Filter.calendarRange(12,2,'month'))
+Map.addLayer(CO2_2,{min:380, max:430,palette: ['9b0000','b10000','c20000','e00000','d23000',
+                    'd04300','ed4200','ff6a00','ff8100','ff9900','ff9900',
+                    'ffc802','ffe210','ffe214','fcff27','fff81f','edff56']},"CO2-1")
+                    
+
+///-------------------------FeatureExport<---------------------------////
+var CO2_features = ee.FeatureCollection(CO2I.map(function(img){
+
+var minmax = img.reduceRegion({
+  reducer: ee.Reducer.minMax(),
+  geometry: Skar,
+  scale:2000
+})
+
+var startDate = ee.Date(img.get('system:time_start'))
+var endDate = ee.Date(img.get('system:time_end'))
+var startyear = startDate.get('year')
+var startmonth = startDate.get('month')
+//startDate = ee.Date(startyear.cat(startmonth))
+var endyear = endDate.get('year')
+var endmonth = endDate.get('month')
+//endDate = ee.Date(endyear.cat(endmonth))
+
+var min = ee.Number(minmax.get('b1_min'))
+var max = ee.Number(minmax.get('b1_max'))
+
+var class1 = 390
+var class2 = 395
+var class3 = 400
+var class4 = 405
+var class5 = 410
+var class6 = 415
+var class7 = 420
+var class8 = 425
+
+var class1CO2 = img.gte(class1).and(img.lt(class2))
+var class2CO2 = img.gte(class2).and(img.lt(class3))
+var class3CO2 = img.gte(class3).and(img.lt(class4))
+var class4CO2 = img.gte(class4).and(img.lt(class5))
+var class5CO2 = img.gte(class5).and(img.lt(class6))
+var class6CO2 = img.gte(class6).and(img.lt(class7))
+var class7CO2 = img.gte(class7).and(img.lt(class8))
+
+class1CO2 = class1CO2.selfMask()
+class2CO2 = class2CO2.selfMask()
+class3CO2 = class3CO2.selfMask()
+class4CO2 = class4CO2.selfMask()
+class5CO2 = class5CO2.selfMask()
+class6CO2 = class6CO2.selfMask()
+class7CO2 = class7CO2.selfMask()
+
+// Use reduceRegion to count the number of pixels in the range
+var count = class1CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count2 = class2CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count3 = class3CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count4 = class4CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count5 = class5CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count6 = class6CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var count7 = class7CO2.reduceRegion({
+  reducer: ee.Reducer.count(),
+  scale: 2000,
+  maxPixels: 1e9,
+  bestEffort: true,
+});
+
+var dw = ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')
+        .filter(ee.Filter.calendarRange(startyear,endyear,'year')).select('label')
+dw = dw.filter(ee.Filter.calendarRange(startmonth,endmonth,'month')).mean()
+
+dw = dw.reduce(ee.Reducer.mode());
+var builtArea = dw.eq(0)
+builtArea = builtArea.rename(['Water']);
+
+// Mask 0 pixel values and count remaining pixels.
+var builtAreaMasked = builtArea.selfMask();
+builtAreaMasked = builtAreaMasked.clip(Skar)
+
+var dw1 = builtAreaMasked.updateMask(class1CO2)
+
+var areaImage = dw1.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats = areaImage.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw2 = builtAreaMasked.updateMask(class2CO2)
+
+var areaImage2 = dw2.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats2 = areaImage2.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw3 = builtAreaMasked.updateMask(class3CO2)
+
+var areaImage3 = dw3.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats3 = areaImage3.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw4 = builtAreaMasked.updateMask(class4CO2)
+
+var areaImage4 = dw4.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats4 = areaImage4.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw5 = builtAreaMasked.updateMask(class5CO2)
+
+var areaImage5 = dw5.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats5 = areaImage5.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw6 = builtAreaMasked.updateMask(class6CO2)
+
+var areaImage6 = dw6.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats6 = areaImage6.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+var dw7 = builtAreaMasked.updateMask(class7CO2)
+
+var areaImage7 = dw7.multiply(ee.Image.pixelArea()).divide(10e6);
+
+var stats7 = areaImage7.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: Skar,
+  scale: 2000,
+  maxPixels: 1e10
+});
+
+return ee.Feature(null, {Class1_NoOfPixels:count.get('b1'),
+                         Class2_NoOfPixels:count2.get('b1'),
+                         Class3_NoOfPixels:count3.get('b1'),
+                         Class4_NoOfPixels:count4.get('b1'),
+                         Class5_NoOfPixels:count5.get('b1'),
+                         Class6_NoOfPixels:count6.get('b1'),
+                         Class7_NoOfPixels:count7.get('b1')
+})
+
+// return ee.Feature(null, {Minimum: minmax.get('b1_min'), 
+//                           Maximum: minmax.get('b1_max'),
+//                           Class1_Area:stats.get('Water'),
+//                           Class2_Area:stats2.get('Water'),
+//                           Class3_Area:stats3.get('Water'),
+//                           Class4_Area:stats4.get('Water'),
+//                           Class5_Area:stats5.get('Water'),
+//                           Class6_Area:stats6.get('Water'),
+//                           Class7_Area:stats7.get('Water'),
+//                           Start_Month:startmonth,
+//                           end_Month:endmonth
+//                           })
+}))
+
+print(CO2_features)
+
+Export.table.toDrive({
+  collection: CO2_features,
+  description: 'No_of_pixels',
+  folder:'CO2_Area',
+  fileFormat: 'CSV'
+});
