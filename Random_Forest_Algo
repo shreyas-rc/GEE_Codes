@@ -1,0 +1,54 @@
+print(points)
+var mangroove = ee.FeatureCollection(points.coordinates().map(function(p){
+  var point = ee.Geometry.Point(p);
+  return ee.Feature(point,{LULC:0});
+}))
+
+// var trees = ee.FeatureCollection(trees1.coordinates().map(function(p){
+//   var point = ee.Geometry.Point(p);
+//   return ee.Feature(point,{LULC:1});
+// }))
+
+var rgbVis = {
+  min: 0.0,
+  max: 3000,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+var gcps = mangroove//.merge(trees)
+
+var rgbVis1 = {
+  min: 0.0,
+  max: 3000,
+  bands: ['B8', 'B4', 'B3'],
+};
+
+var filtered = s2.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+  .filter(ee.Filter.date('2021-07-07', '2021-07-09'))
+  .filter(ee.Filter.bounds(roi));
+ 
+var mosaic = filtered.mosaic();
+ 
+var medianComposite = filtered.median();
+
+Map.addLayer(filtered, rgbVis, 'Filtered Collection');
+Map.addLayer(mosaic, rgbVis, 'Mosaic');
+Map.addLayer(medianComposite, rgbVis, 'Median Composite');
+Map.addLayer(filtered, rgbVis1, 'Standard FCC');
+
+var training = medianComposite.sampleRegions({
+  collection: gcps,
+  properties: ['LULC'],
+  scale:10
+});
+
+// Train a classifier.
+var classifier = ee.Classifier.smileRandomForest(50).train({
+  features: training,
+  classProperty: 'LULC', 
+  inputProperties: medianComposite.bandNames()
+});
+// // Classify the image.
+var classified = medianComposite.classify(classifier);
+print(classified)
+Map.addLayer(classified, {min: 0, max: 1, palette: ['blue', 'green']}, '2019');
