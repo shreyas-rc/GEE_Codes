@@ -1,0 +1,20 @@
+var dataset = ee.ImageCollection("NOAA/DMSP-OLS/NIGHTTIME_LIGHTS")
+    .select('stable_lights')
+    .filterBounds(roi)
+    .map(function(img){
+      return img.set('year', ee.Image(img).date().get('year'))
+    })
+
+var years = [1992, 2000, 2002, 2008, 2013]
+
+for(var a = 0; a < 5; a++){
+  var filter = dataset.filterMetadata('year', 'equals', years[a])
+  
+  var style = {
+    bands: ['stable_lights'],
+    min:0,
+    max: 63,
+    palette: ["9b0000","23ccff","ffe739","58ff7c"]
+  }
+  Map.addLayer(filter.mean().clip(roi), style, 'NOAA -YEAR:' + ' ' + years[a])
+}
